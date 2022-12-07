@@ -30,7 +30,7 @@ const (
 	yGridCountInScreen = (screenHeight - scoreBarHeight) / gridSize
 	totalGridCount     = xGridCountInScreen * yGridCountInScreen
 
-	bombLength = 8
+	bombLength = 6
 	// there are indestructibleObstacleCount obstacles in map
 	indestructibleObstacleCount = totalGridCount / 5
 	destructibleObstacleCount   = totalGridCount / 4
@@ -39,7 +39,7 @@ const (
 	// flame disappear after flameTime second
 	flameTime = 2
 	// obstacle update every updateObstacleTime second
-	updateObstacleTime = 30
+	updateObstacleTime = 3
 	// random bomb appear every randomBombTime second
 	randomBombTime = 2
 )

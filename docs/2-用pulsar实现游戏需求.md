@@ -14,7 +14,7 @@
 
 为了提升游戏的操作难度和趣味性，我们允许玩家推炸弹。
 
-![]()
+![](../images/pushbomb.gif)
 
 这其实就是允许让炸弹移动，和玩家移动是一样的，我们也可以把炸弹的移动抽象成一个事件：
 
@@ -32,7 +32,7 @@ type BombMoveEvent struct {
 
 地图中的障碍物是随机生成的，障碍物分为可摧毁的和不可摧毁的两种类型。考虑到可摧毁的障碍物会被玩家炸掉，我们需要给每个房间定时更新新的地图。
 
-![]()
+![](../images/mapupdate.gif)
 
 这个功能稍微有点难办。可能你会说，也可以把更新地图的动作抽象成一个事件（事实上我也是这样做的）：
 
@@ -77,7 +77,7 @@ type UpdateMapEvent struct {
 
 每个游戏房间要有一个房间计分板，显示房间内每个玩家的得分情况。
 
-![]()
+![](../images/scoreboard.jpg)
 
 这个需求看起来简单，但实现起来略有些复杂，需要借助 **Pulsar Function** 和 **Pulsar tableview** 的能力，我会在后面的章节中具体 Pulsar Function 的开发，这里就简单过一下。
 
@@ -125,7 +125,6 @@ type UserDeadEvent struct {
 顾名思义，connector 就是 Pulsar 和其他数据系统之间的连接器，可以把其他数据系统中的数据导入到 Pulsar 里，也可以把 Pulsar 里面的数据导入到其他数据系统中。
 
 我们只需要下载 Redis 的 connector，做一些简单的配置就可以投入使用了。数据导到 Redis 中，做一些聚合和排序的工作就很简单了，后面的章节我介绍 Pulsar Connector 时再具体讲解。
-
 
 ### 如何实现游戏回放
 
