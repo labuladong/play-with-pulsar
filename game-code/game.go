@@ -39,7 +39,7 @@ const (
 	// flame disappear after flameTime second
 	flameTime = 2
 	// obstacle update every updateObstacleTime second
-	updateObstacleTime = 3
+	updateObstacleTime = 30
 	// random bomb appear every randomBombTime second
 	randomBombTime = 2
 )

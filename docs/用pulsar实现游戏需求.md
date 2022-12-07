@@ -59,7 +59,7 @@ type UpdateMapEvent struct {
 
 因为新玩家创建的消费者需要从 topic 中最新的消息开始消费，所以如果把更新地图的事件和其他事件混在一起，新加入的玩家无法从历史消息中找到最近一次更新地图的消息，从而无法初始化地图：
 
-![]()
+![](../images/4.jpeg)
 
 当然，Pulsar 除了提供 `Producer, Consumer` 接口之外，还提供了 `Reader` 接口，可以从某个位置开始按顺序读取消息。
 
@@ -67,7 +67,9 @@ type UpdateMapEvent struct {
 
 其实我们稍作变通就能解决上面两个问题。
 
-首先，除了记录玩家操作事件的 event topic，我们可以创建另一个 map topic 专门存储更新地图的相关消息，这样最新的地图更新事件就是最后一条消息，可以利用 `Reader` 读取出来给新玩家初始化地图。
+首先，除了记录玩家操作事件的 event topic，我们可以创建另一个 map topic 专门存储更新地图的相关消息，这样最新的地图更新事件就是最后一条消息，可以利用 `Reader` 读取出来给新玩家初始化地图：
+
+![](../images/5.jpeg)
 
 另外，Pulsar 创建 producer 时有一个 **AccessMode** 的参数，只要设置成 `WaitForExclusive` 就可以保证只有一个 producer 成功连接到对应 topic，其他的 producer 会排队作为备用。
 
