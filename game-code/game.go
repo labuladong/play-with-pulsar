@@ -78,7 +78,7 @@ type Game struct {
 	deadPlayer   *audio.Player
 
 	// receive event to redraw our game
-	eventCh chan Event
+	receiveCh chan Event
 	// send local event to send to pulsar
 	sendCh chan Event
 
@@ -88,13 +88,13 @@ type Game struct {
 func (g *Game) Close() {
 	g.client.Close()
 	close(g.sendCh)
-	close(g.eventCh)
+	close(g.receiveCh)
 }
 
 func (g *Game) Update() error {
 	// listen to event
 	select {
-	case event := <-g.eventCh:
+	case event := <-g.receiveCh:
 		event.handle(g)
 	default:
 	}
@@ -109,7 +109,7 @@ func (g *Game) Update() error {
 	}
 
 	var dir = dirNone
-	var bomb = false
+	var setBomb = false
 	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) || inpututil.IsKeyJustPressed(ebiten.KeyA) {
 		dir = dirLeft
 	} else if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) || inpututil.IsKeyJustPressed(ebiten.KeyD) {
@@ -119,7 +119,7 @@ func (g *Game) Update() error {
 	} else if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) || inpututil.IsKeyJustPressed(ebiten.KeyW) {
 		dir = dirUp
 	} else if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
-		bomb = true
+		setBomb = true
 	} else if inpututil.IsKeyJustPressed(ebiten.KeyR) {
 		// revive
 		event := &UserReviveEvent{
@@ -183,7 +183,7 @@ func (g *Game) Update() error {
 	}
 
 	// set bomb on empty block
-	if _, ok := g.posToBombs[localPlayer.pos]; !ok && bomb {
+	if _, ok := g.posToBombs[localPlayer.pos]; !ok && setBomb {
 		info.pos = localPlayer.pos
 		event := &SetBombEvent{
 			bombName: info.name + "-" + randStringRunes(5),
@@ -421,7 +421,7 @@ func newGame(playerName, roomName string) *Game {
 		nameToBombs:     map[string]*Bomb{},
 		posToBombs:      map[Position]*Bomb{},
 		flameMap:        map[Position]*Bomb{},
-		eventCh:         nil,
+		receiveCh:       nil,
 		sendCh:          nil,
 		client:          client,
 	}
@@ -448,7 +448,7 @@ func newGame(playerName, roomName string) *Game {
 	// use this channel to send to pulsar
 	g.sendCh = make(chan Event, 20)
 	// use this channel to receive from pulsar
-	g.eventCh = g.client.start(g.sendCh)
+	g.receiveCh = g.client.start(g.sendCh)
 
 	return g
 }

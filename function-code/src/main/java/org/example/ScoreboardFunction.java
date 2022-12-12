@@ -36,9 +36,9 @@ public class ScoreboardFunction implements Function<GenericJsonRecord, Void> {
             if (outputTopic.isEmpty()) {
                 return null;
             }
-            // roomName-playerName as the stateful key
+            // roomName-playerName as the stateful key  /
             // store the score in stateful function
-            String killerKey = inputTopic.get() + "-" + killer;
+            String killerKey = parseRoomName(inputTopic.get()).get() + "-" + killer;
             context.incrCounter(killerKey, 1);
 
             // send the score messages to score topic
@@ -57,12 +57,20 @@ public class ScoreboardFunction implements Function<GenericJsonRecord, Void> {
         return null;
     }
 
-    private Optional<String> changeEventTopicNameToScoreTopicName(String eventTopicName) {
+    private Optional<String> parseRoomName(String eventTopicName) {
         int i = eventTopicName.lastIndexOf("-event-topic");
         if (i < 0) {
             return Optional.empty();
         }
-        return Optional.of(eventTopicName.substring(0, i) + "-score-topic");
+        return Optional.of(eventTopicName.substring(0, i));
+    }
+
+    private Optional<String> changeEventTopicNameToScoreTopicName(String eventTopicName) {
+        Optional<String> roomName = parseRoomName(eventTopicName);
+        if (roomName.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(roomName.get() + "-score-topic");
     }
 
 

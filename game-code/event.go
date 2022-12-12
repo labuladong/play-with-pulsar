@@ -28,22 +28,23 @@ type UserMoveEvent struct {
 	*playerInfo
 }
 
-func (a *UserMoveEvent) handle(g *Game) {
+func (e *UserMoveEvent) handle(g *Game) {
 	log.Info("handle UserMoveEvent")
-	if !validCoordinate(a.pos) {
+	if !validCoordinate(e.pos) {
 		// move out of boarder
 		return
 	}
-	if _, ok := g.obstacleMap[a.pos]; ok {
+
+	if _, ok := g.obstacleMap[e.pos]; ok {
 		// move to obstacle
 		return
 	}
-	if player, ok := g.nameToPlayers[a.name]; ok && !player.alive {
+	if player, ok := g.nameToPlayers[e.name]; ok && !player.alive {
 		// already dead
 		return
 	}
-	g.nameToPlayers[a.name] = a.playerInfo
-	g.posToPlayers[a.pos] = a.playerInfo
+	g.nameToPlayers[e.name] = e.playerInfo
+	g.posToPlayers[e.pos] = e.playerInfo
 }
 
 type UserDeadEvent struct {
