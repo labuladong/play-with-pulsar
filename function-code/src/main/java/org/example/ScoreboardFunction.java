@@ -21,10 +21,10 @@ public class ScoreboardFunction implements Function<GenericJsonRecord, Void> {
         if (type.equals("UserDeadEvent")) {
             String player = (String) input.getField("name");
             String killer = (String) input.getField("comment");
-//            if (player.equals(killer)) {
-//                // kill himself
-//                return null;
-//            }
+           if (player.equals(killer)) {
+               // kill himself
+               return null;
+           }
 
             // get the source topic of this message
             Optional<String> inputTopic = context.getCurrentRecord().getTopicName();
