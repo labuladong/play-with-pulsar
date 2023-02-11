@@ -2,20 +2,33 @@
 
 A tiny game using Apache Pulsar.
 
-## How to play it
+## How to install
 
-1. Clone this repo.
+1️⃣ Clone this repo, enter code folder.
 
-2. Install the dependency:
+```bash
+git clone https://github.com/labuladong/play-with-pulsar.git
+cd play-with-pulsar/game-code
+```
 
-```shell
+2️⃣ Install the dependency:
+
+```bash
 go mod download
 ```
 
-3. Change your private key path in `main.go`.
+3️⃣ Change your private key path in `main.go`.
 
-4. Compile and run:
+4️⃣ Compile to generate executable file `game`:
 
-```shell
-go run *.go
+```bash
+go build -o game *.go
+```
+
+## How to play
+
+Run the executable file `game` with room name, player name and play mode:
+
+```bash
+./game -player jack -room roomname -mode play
 ```

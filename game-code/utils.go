@@ -115,3 +115,61 @@ func sliceContains(slice []int, p int) bool {
 	}
 	return false
 }
+
+func sliceRemove(slice []int, p int) bool {
+	for i, e := range slice {
+		if e == p {
+			if i == len(slice)-1 {
+				slice = slice[:i]
+			} else {
+				slice = append(slice[:i], slice[i+1:]...)
+			}
+		}
+	}
+	return false
+}
+
+func getExplodeFlame(pos Position, f func(p Position) bool) []Position {
+	var positions []Position
+	for i := pos.X - 1; i >= pos.X-bombLength; i-- {
+		p := Position{X: i, Y: pos.Y}
+		if !validCoordinate(p) {
+			break
+		}
+		if f != nil && !f(p) {
+			break
+		}
+		positions = append(positions, p)
+	}
+	for i := pos.X; i <= pos.X+bombLength; i++ {
+		p := Position{X: i, Y: pos.Y}
+		if !validCoordinate(p) {
+			break
+		}
+		if f != nil && !f(p) {
+			break
+		}
+		positions = append(positions, p)
+	}
+	for j := pos.Y - 1; j >= pos.Y-bombLength; j-- {
+		p := Position{X: pos.X, Y: j}
+		if !validCoordinate(p) {
+			break
+		}
+		if f != nil && !f(p) {
+			break
+		}
+		positions = append(positions, p)
+	}
+	for j := pos.Y; j <= pos.Y+bombLength; j++ {
+		p := Position{X: pos.X, Y: j}
+		if !validCoordinate(p) {
+			break
+		}
+		if f != nil && !f(p) {
+			break
+		}
+		positions = append(positions, p)
+	}
+	return positions
+}

@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"image/color"
 	"math/rand"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -39,7 +40,7 @@ const (
 	// flame disappear after flameTime second
 	flameTime = 2
 	// obstacle update every updateObstacleTime second
-	updateObstacleTime = 30
+	updateObstacleTime = 60
 	// random bomb appear every randomBombTime second
 	randomBombTime = 2
 )
@@ -51,7 +52,7 @@ const (
 	indestructibleObstacleType ObstacleType = 2
 )
 
-type Game struct {
+type BombGame struct {
 	// scores of every player
 	scores *lru.Cache
 
@@ -63,12 +64,15 @@ type Game struct {
 	nameToBombs map[string]*Bomb
 	posToBombs  map[Position]*Bomb
 
-	// although all events are handled serially,
-	// the flameMap may be updated by multiple go routines
-	flameLock sync.RWMutex
-	flameMap  map[Position]*Bomb
+	// the bombs that are exploding (flame on grids)
+	explodingBombs map[Position]*Bomb
+
+	// this map is calculated by explodingBombs when explode or unexplode
+	flameMap map[Position]*Bomb
 
 	// protect for map update and destroy obstacles
+	// because Update() will read it and explode event will write it
+	// these two condition are in different thread
 	obstacleLock sync.RWMutex
 	// two types of obstacle
 	obstacleMap map[Position]ObstacleType
@@ -85,13 +89,13 @@ type Game struct {
 	client *pulsarClient
 }
 
-func (g *Game) Close() {
+func (g *BombGame) Close() {
 	g.client.Close()
 	close(g.sendCh)
 	close(g.receiveCh)
 }
 
-func (g *Game) Update() error {
+func (g *BombGame) Update() error {
 	// listen to event
 	select {
 	case event := <-g.receiveCh:
@@ -127,13 +131,13 @@ func (g *Game) Update() error {
 		}
 		g.sendAsync(event)
 	} else if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-		// quit game
+		g.Close()
+		return os.ErrClosed
 	}
 
-	g.flameLock.RLock()
+	// local player dead due to boom
 	if val, ok := g.flameMap[localPlayer.pos]; ok && val != nil && localPlayer.alive {
 		localPlayer.alive = false
-		// dead due to boom
 		event := &UserDeadEvent{
 			playerInfo: info,
 			// the player who set the bomb
@@ -141,7 +145,6 @@ func (g *Game) Update() error {
 		}
 		g.sendAsync(event)
 	}
-	g.flameLock.RUnlock()
 
 	if dir != dirNone && localPlayer.alive {
 		nextPlayerPos := getNextPosition(localPlayer.pos, dir)
@@ -149,9 +152,11 @@ func (g *Game) Update() error {
 		event := &UserMoveEvent{
 			playerInfo: info,
 		}
+		// handle user move
 		g.sendAsync(event)
+
 		if bomb, ok := g.posToBombs[nextPlayerPos]; ok {
-			// push the bomb
+			// handle push the bomb
 			go func(bomb *Bomb, direction Direction) {
 				nextPos := getNextPosition(bomb.pos, direction)
 				ticker := time.NewTicker(time.Second / 2)
@@ -182,7 +187,7 @@ func (g *Game) Update() error {
 		}
 	}
 
-	// set bomb on empty block
+	// handle set bomb on empty block
 	if _, ok := g.posToBombs[localPlayer.pos]; !ok && setBomb {
 		info.pos = localPlayer.pos
 		event := &SetBombEvent{
@@ -195,8 +200,45 @@ func (g *Game) Update() error {
 	return nil
 }
 
+func (g *BombGame) join() {
+	info := g.nameToPlayers[g.localPlayerName]
+	newMapList := g.genRandomObstacleList()
+	g.sendAsync(&UserJoinEvent{
+		playerInfo: info,
+		Obstacles:  newMapList,
+	})
+}
+
+// 生成随机地图（防止覆盖已知的玩家）
+func (g *BombGame) genRandomObstacleList() []int {
+	indestructibleObstacles := sample(totalGridCount, indestructibleObstacleCount)
+
+	var destructibleObstacles []int
+	for _, v := range sample(totalGridCount, indestructibleObstacleCount+destructibleObstacleCount) {
+		// ignore efficiency, just keep simple, brutal force deduplicate
+		if !sliceContains(indestructibleObstacles, v) {
+			// for destructibleObstacleType, we use negative number to present
+			destructibleObstacles = append(destructibleObstacles, -v)
+		}
+	}
+	obstacles := append(indestructibleObstacles, destructibleObstacles...)
+	var dirs = [][]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {0, 0}}
+
+	for _, info := range g.nameToPlayers {
+		for _, d := range dirs {
+			code := encodeXY(info.pos.X+d[0], info.pos.Y+d[1])
+			if sliceContains(obstacles, code) {
+				sliceRemove(obstacles, code)
+			} else if sliceContains(obstacles, -code) {
+				sliceRemove(obstacles, -code)
+			}
+		}
+	}
+	return obstacles
+}
+
 // setBomb create a bomb with trigger channel
-func (g *Game) setBombWithTrigger(bombName string, position Position, trigger chan struct{}) string {
+func (g *BombGame) setBombWithTrigger(bombName string, position Position, trigger chan struct{}) string {
 	bomb := &Bomb{
 		bombName:   bombName,
 		playerName: strings.Split(bombName, "-")[0],
@@ -208,7 +250,7 @@ func (g *Game) setBombWithTrigger(bombName string, position Position, trigger ch
 	return bomb.bombName
 }
 
-func (g *Game) removeBomb(bombName string) {
+func (g *BombGame) removeBomb(bombName string) {
 	if bomb, ok := g.nameToBombs[bombName]; ok {
 		delete(g.nameToBombs, bombName)
 		if _, ok = g.posToBombs[bomb.pos]; ok {
@@ -217,19 +259,20 @@ func (g *Game) removeBomb(bombName string) {
 	}
 }
 
-func (g *Game) sendAsync(event Event) {
+func (g *BombGame) sendAsync(event Event) {
 	// don't block
 	select {
 	case g.sendCh <- event:
 	default:
+		log.Warning("[sendAsync] there is event being abandoned")
 	}
 }
 
-func (g *Game) Draw(screen *ebiten.Image) {
+func (g *BombGame) Draw(screen *ebiten.Image) {
 	// todo replace Rect with images
 
 	for pos, _ := range g.posToBombs {
-		ebitenutil.DrawRect(screen, float64(pos.X*gridSize), float64(pos.Y*gridSize), gridSize, gridSize, bombColor)
+		ebitenutil.DrawCircle(screen, float64(pos.X*gridSize+gridSize/2), float64(pos.Y*gridSize+gridSize/2), gridSize/2, bombColor)
 	}
 
 	for pos, t := range g.obstacleMap {
@@ -268,112 +311,26 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// print the score of all players
 	ebitenutil.DebugPrintAt(screen, scoreStr.String(), 0, screenHeight-scoreBarHeight+10)
 
-	g.flameLock.RLock()
 	for pos, val := range g.flameMap {
-		// only val > 0 means flame
+		// draw the flame
 		if val != nil {
-			ebitenutil.DrawRect(screen, float64(pos.X*gridSize), float64(pos.Y*gridSize), gridSize, gridSize, flameColor)
+			ebitenutil.DrawLine(screen, float64(pos.X*gridSize), float64(pos.Y*gridSize), float64(pos.X*gridSize+gridSize), float64(pos.Y*gridSize+gridSize), flameColor)
+			ebitenutil.DrawLine(screen, float64(pos.X*gridSize), float64(pos.Y*gridSize+gridSize/2), float64(pos.X*gridSize+gridSize/2), float64(pos.Y*gridSize+gridSize), flameColor)
+			ebitenutil.DrawLine(screen, float64(pos.X*gridSize+gridSize/2), float64(pos.Y*gridSize), float64(pos.X*gridSize+gridSize), float64(pos.Y*gridSize+gridSize/2), flameColor)
+			ebitenutil.DrawLine(screen, float64(pos.X*gridSize), float64(pos.Y*gridSize), float64(pos.X*gridSize+gridSize), float64(pos.Y*gridSize+gridSize), flameColor)
+			ebitenutil.DrawLine(screen, float64(pos.X*gridSize), float64(pos.Y*gridSize+gridSize/2), float64(pos.X*gridSize+gridSize/2), float64(pos.Y*gridSize+gridSize), flameColor)
+			ebitenutil.DrawLine(screen, float64(pos.X*gridSize+gridSize/2), float64(pos.Y*gridSize), float64(pos.X*gridSize+gridSize), float64(pos.Y*gridSize+gridSize/2), flameColor)
+			//ebitenutil.DrawRect(screen, float64(pos.X*gridSize), float64(pos.Y*gridSize), gridSize, gridSize, flameColor)
 		}
 	}
-	g.flameLock.RUnlock()
 }
 
-func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
+func (g *BombGame) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return screenWidth, screenHeight
 }
 
-func (g *Game) explode(bomb *Bomb) {
-	pos := bomb.pos
-	if _, ok := g.posToBombs[pos]; !ok {
-		return
-	}
-	// remove the bomb in the grid
-	g.removeBomb(bomb.bombName)
-
-	// calculate flames
-	g.obstacleLock.RLock()
-	var positions []Position
-	for i := pos.X - 1; i >= pos.X-bombLength; i-- {
-		p := Position{X: i, Y: pos.Y}
-		if t, ok := g.obstacleMap[p]; ok && t == indestructibleObstacleType {
-			break
-		}
-		positions = append(positions, p)
-	}
-	for i := pos.X; i <= pos.X+bombLength; i++ {
-		p := Position{X: i, Y: pos.Y}
-		if t, ok := g.obstacleMap[p]; ok && t == indestructibleObstacleType {
-			break
-		}
-		positions = append(positions, p)
-	}
-	for j := pos.Y - 1; j >= pos.Y-bombLength; j-- {
-		p := Position{X: pos.X, Y: j}
-		if t, ok := g.obstacleMap[p]; ok && t == indestructibleObstacleType {
-			break
-		}
-		positions = append(positions, p)
-	}
-	for j := pos.Y; j <= pos.Y+bombLength; j++ {
-		p := Position{X: pos.X, Y: j}
-		if t, ok := g.obstacleMap[p]; ok && t == indestructibleObstacleType {
-			break
-		}
-		positions = append(positions, p)
-	}
-	g.obstacleLock.RUnlock()
-
-	g.flameLock.Lock()
-	g.obstacleLock.Lock()
-	defer g.flameLock.Unlock()
-	defer g.obstacleLock.Unlock()
-	for _, position := range positions {
-		if !validCoordinate(position) {
-			continue
-		}
-		// set value to the bomb pointer
-		g.flameMap[position] = bomb
-		if t, ok := g.obstacleMap[position]; ok && t == destructibleObstacleType {
-			delete(g.obstacleMap, position)
-		}
-		// if a player standing there, dead
-		// todo
-		//if player, ok := g.posToPlayers[position]; ok {
-		//	player.alive = false
-		//}
-	}
-
-}
-
-func (g *Game) unExplode(pos Position) {
-	var positions []Position
-	for i := pos.X - bombLength; i < pos.X+bombLength+1; i++ {
-		positions = append(positions, Position{X: i, Y: pos.Y})
-	}
-	for j := pos.Y - bombLength; j < pos.Y+bombLength+1; j++ {
-		positions = append(positions, Position{X: pos.X, Y: j})
-	}
-	g.flameLock.Lock()
-	defer g.flameLock.Unlock()
-	bomb := g.flameMap[pos]
-	for _, position := range positions {
-		if !validCoordinate(position) {
-			continue
-		}
-		//if val, ok := g.flameMap[position]; !ok || val <= 0 {
-		//	// the unexplode event only has position info,
-		//	// so history event may trigger unexplode event unexpectedly,
-		//	// so we ensure all grids is flame, then trigger this event
-		//	return
-		//}
-		if _, ok := g.flameMap[position]; bomb == nil || (ok) {
-			g.flameMap[position] = nil
-		}
-	}
-}
-
 // produce a random bomb every second
-func (g *Game) randomBombsEnable() {
+func (g *BombGame) randomBombsEnable() {
 	go func() {
 		// every one seconds, generate a new bomb
 		ticker := time.NewTicker(time.Second * randomBombTime)
@@ -401,25 +358,26 @@ func (g *Game) randomBombsEnable() {
 
 // playerName will be the subscription name
 // roomName will be the topic name
-func newGame(playerName, roomName string) *Game {
+func newGame(playerName, roomName string) *BombGame {
 	info := &playerInfo{
 		name:   playerName,
 		avatar: "fff",
 		pos: Position{
-			X: 0,
-			Y: 0,
+			X: rand.Intn(xGridCountInScreen),
+			Y: rand.Intn(yGridCountInScreen),
 		},
 		alive: true,
 	}
 	client := newPulsarClient(roomName, playerName)
 	cache, err := lru.New(5)
-	g := &Game{
+	g := &BombGame{
 		scores:          cache,
 		localPlayerName: playerName,
 		nameToPlayers:   map[string]*playerInfo{},
 		posToPlayers:    map[Position]*playerInfo{},
 		nameToBombs:     map[string]*Bomb{},
 		posToBombs:      map[Position]*Bomb{},
+		explodingBombs:  map[Position]*Bomb{},
 		flameMap:        map[Position]*Bomb{},
 		receiveCh:       nil,
 		sendCh:          nil,
@@ -446,9 +404,25 @@ func newGame(playerName, roomName string) *Game {
 	g.posToPlayers[info.pos] = info
 
 	// use this channel to send to pulsar
-	g.sendCh = make(chan Event, 20)
+	g.sendCh = make(chan Event, 50)
 	// use this channel to receive from pulsar
 	g.receiveCh = g.client.start(g.sendCh)
+	g.join()
+
+	// handle obstacle update
+	go func() {
+		for {
+			select {
+			case <-time.Tick(time.Second * updateObstacleTime):
+				// every minute update random obstacle
+				if g.client.canUpdateObstacles() {
+					g.sendAsync(&UpdateMapEvent{
+						Obstacles: g.genRandomObstacleList(),
+					})
+				}
+			}
+		}
+	}()
 
 	return g
 }

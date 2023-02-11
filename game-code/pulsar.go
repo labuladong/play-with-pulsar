@@ -7,7 +7,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"math"
 	"reflect"
-	"time"
 )
 
 const eventJsonSchemaDef = `
@@ -87,34 +86,39 @@ type pulsarClient struct {
 	closeCh chan struct{}
 }
 
+// player action event
 func (c *pulsarClient) getEventTopicName() string {
 	return c.roomName + "-event-topic"
 }
 
+// map update event
 func (c *pulsarClient) getMapTopicName() string {
 	return c.roomName + "-map-topic"
 }
 
+// the name for every player to subscribe event topic
 func (c *pulsarClient) getEventSubscriptionName() string {
 	return c.playerName + "-event-sub"
 }
 
+// the name for every player to subscribe map topic
 func (c *pulsarClient) getMapSubscriptionName() string {
 	return c.playerName + "-map-sub"
 }
 
+// the name for only one player to subscribe map topic, this player will send map update event
 func (c *pulsarClient) getUniqueMapSubscriptionName() string {
 	return c.roomName + "-map-sub"
 }
 
 func (c *pulsarClient) Close() {
 	c.producer.Close()
+	c.consumer.Unsubscribe()
 	c.consumer.Close()
 	c.client.Close()
-	c.closeCh <- struct{}{}
 	c.tableView.Close()
-	close(c.closeCh)
 	close(c.consumeCh)
+	close(c.closeCh)
 }
 
 func newPulsarClient(roomName, playerName string) *pulsarClient {
@@ -177,58 +181,35 @@ func newPulsarClient(roomName, playerName string) *pulsarClient {
 }
 
 // try grab exclusive consumer, if success, send new random graph
-func (c *pulsarClient) tryUpdateObstacles() {
-	obstacleTopicName := c.getMapTopicName()
+func (c *pulsarClient) canUpdateObstacles() bool {
 	// every minute update random obstacle
-	if c.exclusiveObstacleConsumer == nil {
-		// all player will get same subscription name
-		obstacleSubscriptionName := c.getUniqueMapSubscriptionName()
-		obstacleConsumerCh := make(chan pulsar.ConsumerMessage)
-		obstacleConsumer, err := c.client.Subscribe(pulsar.ConsumerOptions{
-			Topic: obstacleTopicName,
-			// all player clients should have same subscription name
-			// then fail-over type can work
-			SubscriptionName: obstacleSubscriptionName,
-			// only one consumer can subscribe obstacle topic
-			Type:                        pulsar.Exclusive,
-			MessageChannel:              obstacleConsumerCh,
-			SubscriptionInitialPosition: pulsar.SubscriptionPositionLatest,
-		})
-		if err != nil {
-			// subscription already has other consumers
-			return
-		}
-		c.exclusiveObstacleConsumer = obstacleConsumer
+	if c.exclusiveObstacleConsumer != nil {
+		return true
 	}
-
-	// now, this player is the first consumer, update the map
-	// obstacle topic producer
-	producer, err := c.client.CreateProducer(pulsar.ProducerOptions{
-		Topic:           obstacleTopicName,
-		Schema:          pulsar.NewJSONSchema(eventJsonSchemaDef, nil),
-		DisableBatching: true,
+	// all player will get same subscription name
+	obstacleSubscriptionName := c.getUniqueMapSubscriptionName()
+	obstacleConsumerCh := make(chan pulsar.ConsumerMessage)
+	obstacleConsumer, err := c.client.Subscribe(pulsar.ConsumerOptions{
+		Topic: c.getMapTopicName(),
+		// all player clients should have same subscription name
+		// then Exclusive type can work
+		SubscriptionName: obstacleSubscriptionName,
+		// only one consumer can subscribe obstacle topic
+		Type:                        pulsar.Exclusive,
+		MessageChannel:              obstacleConsumerCh,
+		SubscriptionInitialPosition: pulsar.SubscriptionPositionLatest,
 	})
 	if err != nil {
-		log.Fatal(err)
-	}
-	defer producer.Close()
-
-	indestructibleObstacles := sample(totalGridCount, indestructibleObstacleCount)
-
-	var destructibleObstacles []int
-	for _, v := range sample(totalGridCount, indestructibleObstacleCount+destructibleObstacleCount) {
-		// ignore efficiency, just keep simple, brutal force deduplicate
-		if !sliceContains(indestructibleObstacles, v) {
-			// for destructibleObstacleType, we use negative number to present
-			destructibleObstacles = append(destructibleObstacles, -v)
-		}
+		// subscription already has other consumers
+		return false
+	} else {
+		c.exclusiveObstacleConsumer = obstacleConsumer
+		return true
 	}
 
-	InitObstacleMsg := &EventMessage{
-		Type: InitObstacleEventType,
-		List: append(indestructibleObstacles, destructibleObstacles...),
-	}
-	_, err = producer.Send(context.Background(), &pulsar.ProducerMessage{Value: InitObstacleMsg})
+	// now, this player is the first consumer, update the map obstacle topic
+	//c.updateObstacleTopic(newMap)
+
 }
 
 func (c *pulsarClient) readLatestEvent(topicName string) Event {
@@ -284,7 +265,7 @@ func (c *pulsarClient) start(in chan Event) chan Event {
 			// need to send message to pulsar
 			case action := <-in:
 				if action == nil {
-					log.Warning("send a nil message")
+					log.Warning("send a nil message, maybe channel has been closed")
 					break
 				}
 				actionMsg := convertEventToMsg(action)
@@ -298,66 +279,9 @@ func (c *pulsarClient) start(in chan Event) chan Event {
 				//log.Info("send message to pulsar:\n", string(bytes))
 
 			case <-c.closeCh:
-				goto stop
-			}
-		stop:
-		}
-	}()
-
-	// handle obstacle topic
-	go func() {
-		// 1. try to init random map
-		c.tryUpdateObstacles()
-
-		// 2. read the latest random map
-		obstacleTopicName := c.getMapTopicName()
-		event := c.readLatestEvent(obstacleTopicName)
-		if event != nil {
-			outCh <- event
-		}
-		// 3. create consumer listener
-		obstacleConsumerCh := make(chan pulsar.ConsumerMessage)
-		consumer, err := c.client.Subscribe(pulsar.ConsumerOptions{
-			Topic:            obstacleTopicName,
-			SubscriptionName: c.getMapSubscriptionName(),
-			Schema:           pulsar.NewJSONSchema(eventJsonSchemaDef, nil),
-			Type:             pulsar.Exclusive,
-			MessageChannel:   obstacleConsumerCh,
-		})
-		if err != nil {
-			log.Fatal("[start][go func] cannot create map consumer", err)
-		}
-		//defer consumer.Unsubscribe()
-		defer consumer.Close()
-
-		err = consumer.Seek(pulsar.LatestMessageID())
-		if err != nil {
-			log.Fatal("[start][go func] cannot seek to latest message", err)
-		}
-
-		for {
-			select {
-			case <-time.Tick(time.Second * updateObstacleTime):
-				// every minute update random obstacle
-				c.tryUpdateObstacles()
-			case cm := <-obstacleConsumerCh:
-				msg := cm.Message
-				if msg == nil {
-					log.Error("receive nil form topic:", obstacleTopicName)
-					break
-				}
-				consumer.Ack(msg)
-				log.Infoln("read from map topic")
-				actionMsg := EventMessage{}
-				err := msg.GetSchemaValue(&actionMsg)
-				if err != nil {
-					log.Error("[start][read map event]", err)
-					break
-				}
-				outCh <- convertMsgToEvent(&actionMsg)
+				return
 			}
 		}
-
 	}()
 
 	return outCh
@@ -383,6 +307,7 @@ func convertEventToMsg(action Event) *EventMessage {
 			X:      t.pos.X,
 			Y:      t.pos.Y,
 			Alive:  t.alive,
+			List:   t.Obstacles,
 		}
 	case *UserDeadEvent:
 		msg = &EventMessage{
@@ -433,7 +358,7 @@ func convertEventToMsg(action Event) *EventMessage {
 		}
 	case *UpdateMapEvent:
 		msg = &EventMessage{
-			Type: InitObstacleEventType,
+			Type: UpdateObstacleEventType,
 			List: t.Obstacles,
 		}
 	}
@@ -454,6 +379,7 @@ func convertMsgToEvent(msg *EventMessage) Event {
 	case UserJoinEventType:
 		return &UserJoinEvent{
 			playerInfo: info,
+			Obstacles:  msg.List,
 		}
 	case SetBombEventType:
 		return &SetBombEvent{
@@ -487,7 +413,7 @@ func convertMsgToEvent(msg *EventMessage) Event {
 		return &UndoExplodeEvent{
 			pos: info.pos,
 		}
-	case InitObstacleEventType:
+	case UpdateObstacleEventType:
 		return &UpdateMapEvent{
 			Obstacles: msg.List,
 		}

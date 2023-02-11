@@ -7,20 +7,20 @@ import (
 )
 
 const (
-	UserMoveEventType     = "UserMoveEvent"
-	UserJoinEventType     = "UserJoinEvent"
-	UserDeadEventType     = "UserDeadEvent"
-	UserReviveEventType   = "UserReviveEvent"
-	SetBombEventType      = "SetBombEvent"
-	MoveBombEventType     = "BombMoveEvent"
-	ExplodeEventType      = "ExplodeEvent"
-	UndoExplodeEventType  = "UndoExplodeEvent"
-	InitObstacleEventType = "UpdateMapEvent"
+	UserMoveEventType       = "UserMoveEvent"
+	UserJoinEventType       = "UserJoinEvent"
+	UserDeadEventType       = "UserDeadEvent"
+	UserReviveEventType     = "UserReviveEvent"
+	SetBombEventType        = "SetBombEvent"
+	MoveBombEventType       = "BombMoveEvent"
+	ExplodeEventType        = "ExplodeEvent"
+	UndoExplodeEventType    = "UndoExplodeEvent"
+	UpdateObstacleEventType = "UpdateMapEvent"
 )
 
 // Event make change on Graph
 type Event interface {
-	handle(game *Game)
+	handle(game *BombGame)
 }
 
 // UserMoveEvent makes playerInfo move
@@ -28,7 +28,7 @@ type UserMoveEvent struct {
 	*playerInfo
 }
 
-func (e *UserMoveEvent) handle(g *Game) {
+func (e *UserMoveEvent) handle(g *BombGame) {
 	log.Info("handle UserMoveEvent")
 	if !validCoordinate(e.pos) {
 		// move out of boarder
@@ -52,7 +52,7 @@ type UserDeadEvent struct {
 	killer string
 }
 
-func (e *UserDeadEvent) handle(game *Game) {
+func (e *UserDeadEvent) handle(game *BombGame) {
 	if _, ok := game.nameToPlayers[e.name]; ok {
 		game.nameToPlayers[e.name].alive = false
 	}
@@ -62,18 +62,24 @@ type UserReviveEvent struct {
 	*playerInfo
 }
 
-func (e *UserReviveEvent) handle(game *Game) {
+func (e *UserReviveEvent) handle(game *BombGame) {
 	game.nameToPlayers[e.name] = e.playerInfo
 	game.nameToPlayers[e.name].alive = true
 }
 
+// UserJoinEvent new user join room, must update the map to ensure
+// all player have the consistent start view
 type UserJoinEvent struct {
 	*playerInfo
+	Obstacles []int
 }
 
-func (e *UserJoinEvent) handle(game *Game) {
-	//TODO implement me
-	panic("implement me")
+func (e *UserJoinEvent) handle(game *BombGame) {
+	// 1. display the new user on screen
+	game.nameToPlayers[e.name] = e.playerInfo
+	game.posToPlayers[e.pos] = e.playerInfo
+	// 2. update the obstacle map
+	game.obstacleMap = genObstacleMapFromList(e.Obstacles, nil)
 }
 
 type SetBombEvent struct {
@@ -81,7 +87,7 @@ type SetBombEvent struct {
 	pos      Position
 }
 
-func (e *SetBombEvent) handle(game *Game) {
+func (e *SetBombEvent) handle(game *BombGame) {
 	log.Info("handle SetBombEvent")
 	if _, ok := game.obstacleMap[e.pos]; ok {
 		// set on obstacle
@@ -107,7 +113,7 @@ type ExplodeEvent struct {
 	pos      Position
 }
 
-func (e *ExplodeEvent) handle(game *Game) {
+func (e *ExplodeEvent) handle(game *BombGame) {
 	log.Info("handle ExplodeEvent")
 	bomb, ok := game.nameToBombs[e.bombName]
 	if !ok {
@@ -119,7 +125,42 @@ func (e *ExplodeEvent) handle(game *Game) {
 	case bomb.explodeCh <- struct{}{}:
 	default:
 	}
-	game.explode(bomb)
+
+	bombPos := bomb.pos
+	if _, ok = game.posToBombs[bombPos]; !ok {
+		return
+	}
+	// remove the bomb in the grid
+	game.removeBomb(bomb.bombName)
+	// just mark the exploding bomb position, Draw() will generate the flame
+	game.explodingBombs[bombPos] = bomb
+
+	// explode may destroy obstacles, update obstacleMap
+	game.obstacleLock.Lock()
+	defer game.obstacleLock.Unlock()
+	getExplodeFlame(bombPos, func(p Position) bool {
+		if t, ok := game.obstacleMap[p]; ok {
+			if t == indestructibleObstacleType {
+				return false
+			} else if t == destructibleObstacleType {
+				delete(game.obstacleMap, p)
+			}
+		}
+		return true
+	})
+
+	// update flame map
+	newFlameMap := map[Position]*Bomb{}
+	for bombPos, bomb := range game.explodingBombs {
+		getExplodeFlame(bombPos, func(p Position) bool {
+			if t, ok := game.obstacleMap[p]; ok && t == indestructibleObstacleType {
+				return false
+			}
+			newFlameMap[p] = bomb
+			return true
+		})
+	}
+	game.flameMap = newFlameMap
 
 	if strings.HasPrefix(bomb.bombName, "random-") ||
 		strings.HasPrefix(bomb.bombName, game.localPlayerName+"-") {
@@ -138,8 +179,19 @@ type UndoExplodeEvent struct {
 	pos Position
 }
 
-func (e *UndoExplodeEvent) handle(game *Game) {
-	game.unExplode(e.pos)
+func (e *UndoExplodeEvent) handle(game *BombGame) {
+	delete(game.explodingBombs, e.pos)
+	newFlameMap := map[Position]*Bomb{}
+	for bombPos, bomb := range game.explodingBombs {
+		getExplodeFlame(bombPos, func(p Position) bool {
+			if t, ok := game.obstacleMap[p]; ok && t == indestructibleObstacleType {
+				return false
+			}
+			newFlameMap[p] = bomb
+			return true
+		})
+	}
+	game.flameMap = newFlameMap
 }
 
 type BombMoveEvent struct {
@@ -148,7 +200,7 @@ type BombMoveEvent struct {
 	pos      Position
 }
 
-func (e *BombMoveEvent) handle(game *Game) {
+func (e *BombMoveEvent) handle(game *BombGame) {
 	log.Info("handle BombMoveEvent")
 	bomb, ok := game.nameToBombs[e.bombName]
 	if !ok {
@@ -168,9 +220,13 @@ type UpdateMapEvent struct {
 	Obstacles []int
 }
 
-func (e *UpdateMapEvent) handle(game *Game) {
+func (e *UpdateMapEvent) handle(game *BombGame) {
+	game.obstacleMap = genObstacleMapFromList(e.Obstacles, nil)
+}
+
+func genObstacleMapFromList(list []int, f func(p Position) bool) map[Position]ObstacleType {
 	obstacleMap := map[Position]ObstacleType{}
-	for _, code := range e.Obstacles {
+	for _, code := range list {
 		destructible := false
 		if code < 0 {
 			// this is a destructible obstacle
@@ -182,7 +238,7 @@ func (e *UpdateMapEvent) handle(game *Game) {
 			X: x,
 			Y: y,
 		}
-		if game.posToBombs[pos] != nil || game.posToPlayers[pos] != nil {
+		if f != nil && !f(pos) {
 			continue
 		}
 		if destructible {
@@ -191,5 +247,17 @@ func (e *UpdateMapEvent) handle(game *Game) {
 			obstacleMap[pos] = indestructibleObstacleType
 		}
 	}
-	game.obstacleMap = obstacleMap
+	return obstacleMap
+}
+
+func genListFromObstacleMap(obstacleMap map[Position]ObstacleType) []int {
+	var list []int
+	for pos, t := range obstacleMap {
+		code := encodeXY(pos.X, pos.Y)
+		if t == destructibleObstacleCount {
+			code = -code
+		}
+		list = append(list, code)
+	}
+	return list
 }
