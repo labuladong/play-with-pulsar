@@ -7,6 +7,7 @@ require (
 	github.com/hajimehoshi/ebiten/v2 v2.4.13
 	github.com/hashicorp/golang-lru v0.5.1
 	github.com/sirupsen/logrus v1.9.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -43,6 +44,7 @@ require (
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	golang.org/x/exp v0.0.0-20200224162631-6cc2880d07d6 // indirect
+	golang.org/x/image v0.1.0 // indirect
 	golang.org/x/mobile v0.0.0-20220722155234-aaac322e2105 // indirect
 	golang.org/x/net v0.0.0-20220722155237-a158d28d115b // indirect
 	golang.org/x/oauth2 v0.0.0-20210402161424-2e8d93401602 // indirect

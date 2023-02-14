@@ -124,9 +124,7 @@ func (c *pulsarClient) Close() {
 func newPulsarClient(roomName, playerName string) *pulsarClient {
 	topicName := roomName + "-event-topic"
 	subscriptionName := playerName
-	client, err := pulsar.NewClient(pulsar.ClientOptions{
-		URL: pulsarUrl,
-	})
+	client, err := pulsar.NewClient(readClientOptionFromYaml())
 	if err != nil {
 		log.Fatal("[newPulsarClient]", err)
 	}
@@ -178,6 +176,22 @@ func newPulsarClient(roomName, playerName string) *pulsarClient {
 		consumeCh:  consumeCh,
 		closeCh:    make(chan struct{}),
 	}
+}
+
+func readClientOptionFromYaml() pulsar.ClientOptions {
+	clientOptions := pulsar.ClientOptions{
+		URL: pulsarConfig.BrokerUrl,
+	}
+	if pulsarConfig.OAuth.Enabled {
+		oauth := pulsar.NewAuthenticationOAuth2(map[string]string{
+			"type":       "client_credentials",
+			"issuerUrl":  pulsarConfig.OAuth.IssuerURL,
+			"audience":   pulsarConfig.OAuth.Audience,
+			"privateKey": pulsarConfig.OAuth.PrivateKey,
+		})
+		clientOptions.Authentication = oauth
+	}
+	return clientOptions
 }
 
 // try grab exclusive consumer, if success, send new random graph

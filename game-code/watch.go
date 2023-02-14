@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"image/color"
 	"os"
+	"time"
 )
 
 type GameReplay struct {
@@ -17,7 +18,7 @@ type GameReplay struct {
 	cancel context.CancelFunc
 }
 
-func NewGameReplay(roomName string) *GameReplay {
+func NewGameReplay(roomName, at string) *GameReplay {
 	ctx, cancel := context.WithCancel(context.Background())
 	game := &BombGame{
 		nameToPlayers:  map[string]*playerInfo{},
@@ -26,7 +27,7 @@ func NewGameReplay(roomName string) *GameReplay {
 		posToBombs:     map[Position]*Bomb{},
 		explodingBombs: map[Position]*Bomb{},
 		flameMap:       map[Position]*Bomb{},
-		receiveCh:      readAllMessage(ctx, roomName),
+		receiveCh:      readAllMessage(ctx, roomName, at),
 	}
 	return &GameReplay{
 		BombGame: game,
@@ -39,14 +40,18 @@ func (g *GameReplay) Close() {
 	g.cancel()
 }
 
-func readAllMessage(ctx context.Context, roomName string) chan Event {
+func readAllMessage(ctx context.Context, roomName, at string) chan Event {
 	topicName := roomName + "-event-topic"
-	client, err := pulsar.NewClient(pulsar.ClientOptions{
-		URL: pulsarUrl,
-	})
+	var start pulsar.MessageID
+	if at == "latest" {
+		start = pulsar.LatestMessageID()
+	} else {
+		start = pulsar.EarliestMessageID()
+	}
+	client, err := pulsar.NewClient(readClientOptionFromYaml())
 	reader, err := client.CreateReader(pulsar.ReaderOptions{
 		Topic:          topicName,
-		StartMessageID: pulsar.EarliestMessageID(),
+		StartMessageID: start,
 		Schema:         pulsar.NewJSONSchema(eventJsonSchemaDef, nil),
 	})
 	if err != nil {
@@ -55,23 +60,24 @@ func readAllMessage(ctx context.Context, roomName string) chan Event {
 
 	ch := make(chan Event)
 	go func() {
+		// play back the game, don't too fast
+		tick := time.Tick(200 * time.Millisecond)
 		for true {
-			msg, err := reader.Next(ctx)
-			if err != nil {
-				log.Error("[Playback][reader.Next]", err)
-				continue
-			}
-			actionMsg := EventMessage{}
-			err = json.Unmarshal(msg.Payload(), &actionMsg)
-			if err != nil {
-				log.Error("[Playback][json.Unmarshal]", err)
-				continue
+			msg, _ := reader.Next(ctx)
+			var actionMsg EventMessage
+			if msg != nil {
+				err = json.Unmarshal(msg.Payload(), &actionMsg)
+				if err != nil {
+					log.Error("[Playback][json.Unmarshal]", err)
+					continue
+				}
 			}
 			select {
 			case <-ctx.Done():
 				reader.Close()
 				return
-			case ch <- convertMsgToEvent(&actionMsg):
+			case <-tick:
+				ch <- convertMsgToEvent(&actionMsg)
 			}
 		}
 	}()

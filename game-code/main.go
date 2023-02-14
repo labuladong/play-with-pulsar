@@ -2,22 +2,66 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 	"os"
 )
 
-const pulsarUrl = "pulsar://localhost:6650"
+var pulsarConfig *PulsarConfig
+
+func parseConfigFile(path string) *PulsarConfig {
+	// Read YAML file
+	yamlFile, err := os.ReadFile(path)
+	if err != nil {
+		panic(err)
+	}
+
+	// Parse YAML file
+	var config PulsarConfig
+	err = yaml.Unmarshal(yamlFile, &config)
+	if err != nil {
+		panic(err)
+	}
+	if config.BrokerUrl == "" {
+		config.BrokerUrl = "pulsar://localhost:6650"
+	}
+
+	fmt.Println("Broker url:", config.BrokerUrl)
+	fmt.Println("OAuth.Enabled:", config.OAuth.Enabled)
+	fmt.Println("OAuth.IssuerURL:", config.OAuth.IssuerURL)
+	fmt.Println("OAuth.Audience:", config.OAuth.Audience)
+	fmt.Println("OAuth.PrivateKey:", config.OAuth.PrivateKey)
+	return &config
+}
+
+type OAuthConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	IssuerURL  string `yaml:"issuerUrl"`
+	Audience   string `yaml:"audience"`
+	PrivateKey string `yaml:"privateKey"`
+}
+
+type PulsarConfig struct {
+	BrokerUrl string      `yaml:"brokerUrl"`
+	OAuth     OAuthConfig `yaml:"OAuth"`
+}
 
 func main() {
 	var help = flag.Bool("help", false, "Show help")
 	var roomName string
 	var playerName string
 	var mode string
+	var at string
+
+	pulsarConfig = parseConfigFile("config.yml")
+
 	// Bind the flag
 	flag.StringVar(&roomName, "room", "", "the room name")
 	flag.StringVar(&playerName, "player", "", "the player name")
 	flag.StringVar(&mode, "mode", "play", "play/watch")
+	flag.StringVar(&at, "at", "earliest", "specify the point you'd like to watch")
 	// Parse the flag
 	flag.Parse()
 
@@ -47,7 +91,7 @@ func main() {
 			log.Fatal("[main]", err)
 		}
 	} else if mode == "watch" {
-		replay := NewGameReplay(roomName)
+		replay := NewGameReplay(roomName, at)
 		defer replay.Close()
 		if err := ebiten.RunGame(replay); err != nil {
 			log.Fatal("[main]", err)

@@ -1,0 +1,8 @@
+# default is pulsar://localhost:6650
+brokerUrl:
+
+OAuth:
+  enabled: false
+  issuerUrl:
+  audience:
+  privateKey:
