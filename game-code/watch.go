@@ -99,7 +99,6 @@ func (g *GameReplay) Update() error {
 }
 
 func (g *GameReplay) Draw(screen *ebiten.Image) {
-	// todo replace Rect with images
 
 	for pos, _ := range g.posToBombs {
 		ebitenutil.DrawCircle(screen, float64(pos.X*gridSize+gridSize/2), float64(pos.Y*gridSize+gridSize/2), gridSize/2, bombColor)

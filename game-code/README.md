@@ -17,9 +17,7 @@ cd play-with-pulsar/game-code
 go mod download
 ```
 
-3️⃣ Change your private key path in `main.go`.
-
-4️⃣ Compile to generate executable file `game`:
+3️⃣ Compile to generate executable file `game`:
 
 ```bash
 go build -o game *.go
