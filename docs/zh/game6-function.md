@@ -1,10 +1,14 @@
-# 用 Pulsar function 和 TableView 开发计分板
+---
+title: '用 Pulsar 开发多人小游戏（六）：用 Pulsar Function 制作房间计分板'
+---
+
+> note：本文是《用 Pulsar 开发多人在线小游戏》的第三篇，配套源码和全部文档参见我的 GitHub 仓库 [play-with-pulsar](https://github.com/labuladong/play-with-pulsar) 以及我的文章列表。
 
 Pulsar Function 允许你编写函数对 topic 中的数据进行一些处理，函数的输入就是一个或多个 topic 中的消息，函数的返回值可以发送到其他 topic 中。
 
 官网的一张图就能看明白了：
 
-![](https://pulsar.apache.org/assets/images/function-overview-df56ee014ed344f64e7e0f807bd576c2.svg)
+![](https://labuladong.github.io/pictures/pulsar-game/function.jpg)
 
 比方说，发送到 `topicA` 中的消息都是英文单词，我想把这些英文单词都转化成大写并转发到 `topicB` 中，那么就可以写一个 Pulsar function 做这个事情。
 
@@ -12,13 +16,15 @@ Pulsar Function 还支持 Stateful Storage，简单来说就是键值对的存�
 
 比如官网给了一个单词计数器的例子：
 
-![](https://pulsar.apache.org/assets/images/pulsar-functions-word-count-f7b0d99f0a0e03e0b20fd0aa0ff6ef48.png)
+![](https://labuladong.github.io/pictures/pulsar-game/function2.png)
 
 这个 Pulsar Function 会从一个 topic 中读取句子并切分成单词，然后统计每个单词出现的频率。
 
 单词频率其实是以键值对的形式存储在这个 Function 中的，可以通过 admin API 来读取键对应的值，官网文档：
 
 https://pulsar.apache.org/docs/next/functions-quickstart/#start-stateful-functions
+
+Pulsar Function 可以单独部署成服务，也可以上传到 broker 上，作为 broker 的一部分。不过目前社区的建议是部署单独的 Function 集群。
 
 目前 Pulsar 支持使用 Python、Go、Java 来开发 Function，API 文档：
 

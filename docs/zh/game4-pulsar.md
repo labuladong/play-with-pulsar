@@ -1,4 +1,8 @@
-# Pulsar 的部署
+---
+title: '用 Pulsar 开发多人小游戏（四）：Pulsar 安装使用简介'
+---
+
+> note：本文是《用 Pulsar 开发多人在线小游戏》的第三篇，配套源码和全部文档参见我的 GitHub 仓库 [play-with-pulsar](https://github.com/labuladong/play-with-pulsar) 以及我的文章列表。
 
 最详尽的部署方法参见官网：
 
@@ -10,7 +14,7 @@ https://pulsar.apache.org/
 
 如下图所示，Pulsar 集群包含一个或多个 broker 节点，一个或多个 bookie 节点，以及一个或多个 zookeeper 节点：
 
-![](../images/pulsar-cluster.jpeg)
+![](https://labuladong.github.io/pictures/pulsar-game/pulsar-cluster.jpeg)
 
 broker 节点负责计算（比如客户端的连接、数据的缓存/分块等工作），bookie 节点负责存储（数据的持久化和一致性存储），zookeeper 存储这些节点的元数据，就这么简单。
 

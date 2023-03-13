@@ -1,6 +1,6 @@
-# Play with Apache Pulsar
-
-> **English version see [docs/en folder](docs/en/)**
+---
+title: '用 Pulsar 开发多人小游戏（一）：炸弹人游戏开发需求及难点'
+---
 
 我之前写过一篇文章 [我用消息队列做了个联机游戏](https://mp.weixin.qq.com/s/kI0HUTFVr4YEBpLRZWLEDg) 用 Pulsar 这款消息队列实现了一个比较简陋的炸弹人游戏，结果不少读者对这个小游戏都很感兴趣，甚至在 Pulsar 的技术交流群里都遇到了公众号的读者。
 
@@ -14,7 +14,7 @@ https://github.com/labuladong/play-with-pulsar
 
 下面开始正文，首先要从我小时候特别爱玩的一款游戏说起：
 
-![](./images/0.jpg)
+![](https://labuladong.github.io/pictures/pulsar-game/0.jpg)
 
 这个游戏叫做 Q 版泡泡堂，应该有不少读者小时候都玩过。游戏里玩家可以操控一个机器人放炸弹，炸开障碍物能够获取随机道具，玩家消灭所有其他机器人则闯关成功，如果被其他机器人消灭，则闯关失败。
 
@@ -22,35 +22,35 @@ https://github.com/labuladong/play-with-pulsar
 
 基于这个想法，充分结合现有的技术组件，我计划编写一系列教程：
 
-![](./images/plan.jpg)
+![](https://labuladong.github.io/pictures/pulsar-game/plan.jpg)
 
 这个教程的最终产物就是一个多人联机的炸弹人游戏：
 
-![](./images/preview.jpg)
+![](https://labuladong.github.io/pictures/pulsar-game/preview.jpg)
 
 ## 游戏功能规划
 
 经典的炸弹人游戏，每个玩家可以移动、放炸弹，炸弹在一段时间后会爆炸，被炸弹炸到的玩家会立即死亡，但允许玩家无限复活。
 
-![](./images/revive.gif)
+![](https://labuladong.github.io/pictures/pulsar-game/revive.gif)
 
 除了最基本的玩法，我们还有以下需求：
 
 1、**需要「房间」的概念**，在相同房间里的玩家才能一起对战，不同房间之间不能互相影响。
 
-![](./images/roomname.jpg)
+![](https://labuladong.github.io/pictures/pulsar-game/roomname.jpg)
 
 2、为了提升游戏的操作难度和趣味性，允许玩家**推炸弹**。
 
-![](./images/pushbomb.gif)
+![](https://labuladong.github.io/pictures/pulsar-game/pushbomb.gif)
 
 4、地图中的障碍物是随机生成的，障碍物分为可摧毁的和不可摧毁的两种类型。考虑到可摧毁的障碍物会被玩家炸掉，我们需要给每个房间**定时更新新的地图**。
 
-![](./images/mapupdate.gif)
+![](https://labuladong.github.io/pictures/pulsar-game/mapupdate.gif)
 
 5、要有一个**房间计分板**，显示房间内每个玩家的得分情况。
 
-![](./images/scoreboard.jpg)
+![](https://labuladong.github.io/pictures/pulsar-game/scoreboard.jpg)
 
 6、除了当前游戏房间中的分数情况，我们还需要有一个**全局计分板**，可以对所有玩家在不同房间的总得分进行排名。
 
@@ -72,11 +72,11 @@ https://github.com/labuladong/play-with-pulsar
 
 比如就考虑两个玩家 `playerA` 和 `playerB`，他们分别站在 `(2, 3)` 和 `(6, 4)`，此时每个玩家的本地状态和服务端的状态都是一致的，这很好：
 
-![](./images/1.jpeg)
+![](https://labuladong.github.io/pictures/pulsar-game/1.jpeg)
 
 此时 `playerA` 进行一次移动，先更新本地状态，然后告诉服务端，服务端再通知到 `playerB`。但是服务端和 `playerB` 通信时出现了网络抖动导致通信失败，那么就造成了 `playerB` 的本地状态错误：
 
-![](./images/2.jpeg)
+![](https://labuladong.github.io/pictures/pulsar-game/2.jpeg)
 
 `playerB` 看到 `playerA` 仍然站在 `(2, 3)`，而实际上 `playerA` 已经站在了 `(3, 3)`。
 
@@ -100,7 +100,7 @@ https://github.com/labuladong/play-with-pulsar
 
 综上所述，我们的后端服务就是一个消息队列，客户端本地产生的事件也要先成功发送到消息队列，再从消息队列读取之后才会更新本地状态：
 
-![](./images/3.jpeg)
+![](https://labuladong.github.io/pictures/pulsar-game/3.jpeg)
 
 用一段伪码表示可能会更清晰：
 
@@ -127,6 +127,6 @@ new Thread(() -> {
 
 这样，所有玩家客户端都以后端消息队列中的事件顺序（全局一致）为准，依次消费这些事件更新本地状态，从而保证了所有客户端的本地状态全局强一致的。
 
-> PS：回想一下，我们在玩 MOBA 游戏时，如果由于网络原因短暂卡顿重连，也会出现类似放快速放电影的情况。所以我猜测真实的多人在线游戏可能真的是通过类似消息队列的机制来保证玩家之间同步的。
+> note：回想一下，我们在玩 MOBA 游戏时，如果由于网络原因短暂卡顿重连，也会出现类似放快速放电影的情况。所以我猜测真实的多人在线游戏可能真的是通过类似消息队列的机制来保证玩家之间同步的。
 
 在下篇文章，我会具体讲讲如何使用 Apache Pulsar 这样一个消息队列实现上面列举的游戏功能。

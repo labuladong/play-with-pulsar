@@ -1,4 +1,8 @@
-# Golang 2D 游戏框架 Ebiten 实战
+---
+title: '用 Pulsar 开发多人小游戏（三）：Golang 2D 游戏框架 Ebiten 实战'
+---
+
+> note：本文是《用 Pulsar 开发多人在线小游戏》的第三篇，配套源码和全部文档参见我的 GitHub 仓库 [play-with-pulsar](https://github.com/labuladong/play-with-pulsar) 以及我的文章列表。
 
 我选择了 Go 语言的一款 2D 游戏框架来制作这个炸弹人游戏，叫做 Ebitengine，官网如下：
 
@@ -129,7 +133,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 类比一下我们的炸弹人游戏：
 
-![](../images/pushbomb.gif)
+![](https://labuladong.github.io/pictures/pulsar-game/pushbomb.gif)
 
 可以发现，基本的游戏布局其实和贪吃蛇游戏差不多，用不同颜色的方块代表障碍物、玩家、炸弹，这主要也是因为实现起来简单，不需要美术贴图之类的非编程工作。所以炸弹人游戏的 `Draw` 方法和贪吃蛇游戏应该差不多，就是渲染一些不同颜色方块。
 
@@ -194,7 +198,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 而炸弹人游戏可能更新游戏数据的事件非常多，除了本地玩家的键盘事件之外，还要考虑到联机玩家产生的事件，比如新玩家加入房间、某个玩家死亡、某个玩家复活，某个玩家移动等等。
 
-为了简化各种复杂情况的处理，我们可以按照前文 [如何用 Pulsar 实现游戏需求](./用pulsar实现游戏需求.md) 所描述的那样，我们创建了一个 `Event` 接口，玩家的所有动作都被抽象成一个 `Event`：
+为了简化各种复杂情况的处理，我们可以按照前文 [如何用 Pulsar 实现游戏需求](https://labuladong.github.io/article/fname.html?fname=game2-use-mq) 所描述的那样，我们创建了一个 `Event` 接口，玩家的所有动作都被抽象成一个 `Event`：
 
 ```go
 type Event interface {
@@ -273,7 +277,7 @@ func (g *Game) Update() error {
 }
 ```
 
-我们把本地产生的事件塞进 `sendCh`，并从 `receiveCh` 读取并渲染 Pulsar 中的事件；而且 `Update` 在每一帧刷新时都会被调用，就好像一个死循环，所以上面这段逻辑就实现了 [多人游戏难点分析](../README.md) 中提到的同步多个玩家事件的伪码逻辑：
+我们把本地产生的事件塞进 `sendCh`，并从 `receiveCh` 读取并渲染 Pulsar 中的事件；而且 `Update` 在每一帧刷新时都会被调用，就好像一个死循环，所以上面这段逻辑就实现了 [多人游戏难点分析](https://labuladong.github.io/article/fname.html?fname=game1-introduce) 中提到的同步多个玩家事件的伪码逻辑：
 
 ```java
 // 一个线程负责拉取并显示事件

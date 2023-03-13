@@ -1,4 +1,8 @@
-# 什么是 schema？为什么要用 schema？
+---
+title: '用 Pulsar 开发多人小游戏（五）：什么是 schema？为什么要用 schema？'
+---
+
+> note：本文是《用 Pulsar 开发多人在线小游戏》的第三篇，配套源码和全部文档参见我的 GitHub 仓库 [play-with-pulsar](https://github.com/labuladong/play-with-pulsar) 以及我的文章列表。
 
 我推荐《数据密集型应用系统设计》这本书的第四章：编码与演化（[在线阅读地址](http://ddia.vonng.com/#/ch4)）。
 

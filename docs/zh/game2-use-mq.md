@@ -1,3 +1,10 @@
+---
+title: '用 Pulsar 开发多人小游戏（二）：纯消息队列作为游戏后端'
+---
+
+> note：本文是《用 Pulsar 开发多人在线小游戏》的第三篇，配套源码和全部文档参见我的 GitHub 仓库 [play-with-pulsar](https://github.com/labuladong/play-with-pulsar) 以及我的文章列表。
+
+
 之前说了，每个游戏客户端包含一个 Pulsar 生产者和一个 Pulsar 消费者。
 
 游戏中所有玩家动作都会被抽象成一个事件，游戏客户端会监听本地键盘的动作并生成对应的事件，由生产者发送到 Pulsar 消息队列里；同时每个游戏客户端的消费者会不断从 Pulsar 中拉取事件并把事件应用到本地，从而保证所有玩家之间的视图是同步的。
@@ -14,7 +21,7 @@
 
 为了提升游戏的操作难度和趣味性，我们允许玩家推炸弹。
 
-![](../images/pushbomb.gif)
+![](https://labuladong.github.io/pictures/pulsar-game/pushbomb.gif)
 
 这其实就是允许让炸弹移动，和玩家移动是一样的，我们也可以把炸弹的移动抽象成一个事件：
 
@@ -32,7 +39,7 @@ type BombMoveEvent struct {
 
 地图中的障碍物是随机生成的，障碍物分为可摧毁的和不可摧毁的两种类型。考虑到可摧毁的障碍物会被玩家炸掉，我们需要给每个房间定时更新新的地图。
 
-![](../images/mapupdate.gif)
+![](https://labuladong.github.io/pictures/pulsar-game/mapupdate.gif)
 
 这个功能稍微有点难办。可能你会说，也可以把更新地图的动作抽象成一个事件（事实上我也是这样做的）：
 
@@ -49,7 +56,7 @@ type UpdateMapEvent struct {
 
 要知道我们的后端只有 Pulsar 消息队列，你无法在后端写代码实现一个定时器定期给 topic 中发送消息的。
 
-> PS：实际上 Pulsar 也能提供一些简单的计算功能，也就是 Pulsar Function，我会在后面介绍。
+> tip：实际上 Pulsar 也能提供一些简单的计算功能，也就是 Pulsar Function，我会在后面介绍。
 
 那么我们只能把更新地图的逻辑写在前端（游戏客户端），但这里还有问题。假设有 3 个在线客户端，每个客户端都每隔 3 分钟发送一次更新地图的命令，那么实际上就是每 1 分钟更新一次地图了，这显然是不合理的。
 
@@ -59,7 +66,7 @@ type UpdateMapEvent struct {
 
 因为新玩家创建的消费者需要从 topic 中最新的消息开始消费，所以如果把更新地图的事件和其他事件混在一起，新加入的玩家无法从历史消息中找到最近一次更新地图的消息，从而无法初始化地图：
 
-![](../images/4.jpeg)
+![](https://labuladong.github.io/pictures/pulsar-game/4.jpeg)
 
 当然，Pulsar 除了提供 `Producer, Consumer` 接口之外，还提供了 `Reader` 接口，可以从某个位置开始按顺序读取消息。
 
@@ -69,7 +76,7 @@ type UpdateMapEvent struct {
 
 首先，除了记录玩家操作事件的 event topic，我们可以创建另一个 map topic 专门存储更新地图的相关消息，这样最新的地图更新事件就是最后一条消息，可以利用 `Reader` 读取出来给新玩家初始化地图：
 
-![](../images/5.jpeg)
+![](https://labuladong.github.io/pictures/pulsar-game/5.jpeg)
 
 另外，Pulsar 创建 producer 时有一个 **AccessMode** 的参数，只要设置成 `WaitForExclusive` 就可以保证只有一个 producer 成功连接到对应 topic，其他的 producer 会排队作为备用。
 
@@ -79,7 +86,7 @@ type UpdateMapEvent struct {
 
 每个游戏房间要有一个房间计分板，显示房间内每个玩家的得分情况。
 
-![](../images/scoreboard.jpg)
+![](https://labuladong.github.io/pictures/pulsar-game/scoreboard.jpg)
 
 这个需求看起来简单，但实现起来略有些复杂，需要借助 **Pulsar Function** 和 **Pulsar tableview** 的能力，我会在后面的章节中具体 Pulsar Function 的开发，这里就简单过一下。
 
